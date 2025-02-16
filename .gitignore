@@ -1,0 +1,8 @@
+# Ignore everything
+*
+
+# Do not ignore these files
+!.gitignore
+!setup.sh
+!README.md
+
