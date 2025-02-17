@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Gather current user details
+CURRENT_USER=$(logname)
+USER_HOME=$(eval echo ~$CURRENT_USER)
+
 # Setup the Candy
 RED='\033[1;31m'
 GREEN='\033[1;32m'
@@ -9,8 +13,6 @@ WHITE='\033[1;37m'
 RESET='\033[0m'  # Reset color
 VERBOSE=false
 REINIT=false
-
-echo "$(date '+%Y-%m-%d %H:%M:%S')" > setup.log
 
 show_header() {
     local header="$1"
@@ -47,9 +49,12 @@ show_spinner() {
 # Pre-flight checks
 #
 if [ "$EUID" -ne 0 ]; then
-    show_error "Please run as root (use sudo)."
-    exit 1
+    echo -e "${YELLOW}🔹 Elevating privileges... You may be prompted for your password.${RESET}"
+    exec sudo bash "$0" "$@"  # Restart the script with sudo
+    exit 0
 fi
+
+echo "$(date '+%Y-%m-%d %H:%M:%S')" > setup.log
 
 for arg in "$@"; do
     if [[ "$arg" == "--verbose" ]]||[[ "$arg" == "-v" ]]; then
@@ -215,5 +220,41 @@ done
 
 do_update
 
-show_header "✅ Setup Complete!"
+#
+# Configurations and other items
+# These are done as the user, not sudo.
+#
+
+show_header "Downloading Meslo Nerd Fonts"
+log_and_run "download_meslo" "sudo -u $CURRENT_USER wget -P $USER_HOME/.local/share/fonts https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/Meslo.zip"
+log_and_run "unzip fonts" "sudo -u $CURRENT_USER bash -c 'cd $USER_HOME/.local/share/fonts && unzip -u Meslo.zip && rm Meslo.zip && rm *.txt && rm *.md'"
+log_and_run "refresh_font_cache" "sudo -u $CURRENT_USER fc-cache -f"
+
+
+show_header "Configuring Terminator"
+config_file="$USER_HOME/.config/terminator/config"
+
+log_and_run "create_terminator_config" "mkdir -p '$(dirname $config_file)' && touch $config_file"
+
+awk '
+BEGIN { inside_profiles=0; inside_default=0; found_cursor=0; found_font=0; found_system_font=0 }
+/^\[profiles\]/ { inside_profiles=1; print; next }
+/^\s*\[\[/ { inside_default=0 }  # Detect profile sections
+inside_profiles && /^\s*\[\[default\]\]/ { inside_default=1; print; next }
+inside_profiles && inside_default && /^\s*cursor_shape\s*=/ { found_cursor=1 }
+inside_profiles && inside_default && /^\s*font\s*=/ { found_font=1 }
+inside_profiles && inside_default && /^\s*use_system_font\s*=/ { found_system_font=1 }
+{ print }
+END {
+    if (!inside_profiles) print "[profiles]"
+    if (!inside_default) print "  [[default]]"
+    if (!found_cursor) print "    cursor_shape = underline"
+    if (!found_font) print "    font = MesloLGLDZ Nerd Font 10"
+    if (!found_system_font) print "    use_system_font = False"
+}' "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
+
+show_header "Fixing file ownership for user configurations..."
+log_and_run "fix_permissions" "chown -R $CURRENT_USER:$CURRENT_USER $USER_HOME/.config $USER_HOME/.local"
+
+show_header "✅ Setup Complete!\n  You may want to restart this terminal\n  and/or the computer."
 
