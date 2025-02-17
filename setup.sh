@@ -1,10 +1,59 @@
 #!/bin/bash
 
-# Ensure the script runs as root
+# Setup the Candy
+RED='\033[1;31m'
+GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[1;36m'
+WHITE='\033[1;37m'
+RESET='\033[0m'  # Reset color
+
+show_header() {
+    local header="$1"
+    echo -e "${WHITE}=========================================${RESET}"
+    echo -e "${CYAN}  $header ${RESET}"
+    echo -e "${WHITE}=========================================${RESET}"
+    echo "$header" >> setup.log
+}
+
+show_error() {
+    local header="$1"
+    echo -e "${RED}=========================================${RESET}"
+    echo -e "${RED}  $header ${RESET}"
+    echo -e "${RED}=========================================${RESET}"
+    echo "$header" >> setup.log
+}
+
+show_spinner() {
+    local pid=$1
+    local delay=0.1
+    local spinstr='|/-\'
+
+    while ps -p $pid &>/dev/null; do
+        local temp=${spinstr#?}
+        printf " [%c]  " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+}
+
+#
+# Pre-flight checks
+#
 if [ "$EUID" -ne 0 ]; then
-    echo "Please run as root (use sudo)" | tee -a setup.log
+    show_error "Please run as root (use sudo)."
     exit 1
 fi
+
+VERBOSE=false
+for arg in "$@"; do
+    if [[ "$arg" == "--verbose" ]]; then
+        VERBOSE=true
+    fi
+done
+
 
 required_cmds=("jq" "nala" "add-apt-repository" "curl" "gpg")
 missing_cmds=()
@@ -16,76 +65,74 @@ for cmd in "${required_cmds[@]}"; do
 done
 
 if [ ${#missing_cmds[@]} -gt 0 ]; then
-    echo "[ERROR] Missing required commands: ${missing_cmds[*]}" | tee -a setup.log
+    show_error "[ERROR] Missing required commands: ${missing_cmds[*]}"
     echo "Please install them first and rerun the script."
     exit 1
 fi
 
-
-# === FUNCTION DEFINITIONS ===
-# Ensure progress tracking file exists
 if [ ! -f setup-progress.json ]; then
     echo '{}' > setup-progress.json
 fi
 
-# Function to mark a step as completed
+
+#
+# General Functions
+#
 mark_step_complete() {
     step_name="$1"
     jq --arg step "$step_name" '.[$step] = "success"' setup-progress.json > temp.json && mv temp.json setup-progress.json
 }
 
-# Function to mark a step as failed
 mark_step_failed() {
     step_name="$1"
     jq --arg step "$step_name" '.[$step] = "failed"' setup-progress.json > temp.json && mv temp.json setup-progress.json
 }
 
-# Function to check if a step was already completed
 is_step_completed() {
     step_name="$1"
     result=$(jq -r --arg step "$step_name" '.[$step] // empty' setup-progress.json)
     [ "$result" == "success" ]
 }
 
-# Function to log and run commands safely
 log_and_run() {
     local step_name="$1"
     local command="$2"
-    local acceptable_exit_codes="${3:-0}"  # Default exit code is 0
+    local acceptable_exit_codes="${3:-0}"
 
-    # Skip step if already completed
     if [[ "$step_name" != "update_check" ]] && is_step_completed "$step_name"; then
-        echo "[SKIPPING] $step_name - Already completed" | tee -a setup.log
+        echo -e "${YELLOW}[SKIPPING]${RESET} $step_name - Already completed" | tee -a setup.log
         return 0
     fi
 
-    echo "[RUNNING] $step_name: $command" | tee -a setup.log
-    if eval "$command" >> setup.log 2>&1; then
-        echo "[SUCCESS] $step_name completed successfully" | tee -a setup.log
+    echo -e "${CYAN}[RUNNING]${RESET} $step_name" | tee -a setup.log
+    if [ "$VERBOSE" = true ]; then
+        echo -e "${WHITE}Command: $command${RESET}"  # Only show the command in verbose mode
+    fi
+
+    eval "$command" >> setup.log 2>&1 &  # Always log, but not necessarily show
+    local pid=$!
+    show_spinner $pid  # Show spinner while the command runs
+    wait $pid
+    local exit_code=$?
+
+    if [[ " $acceptable_exit_codes " =~ " $exit_code " ]]; then
+        echo -e "${GREEN}[SUCCESS]${RESET} $step_name completed" | tee -a setup.log
         mark_step_complete "$step_name"
     else
-        exit_code=$?
-        if [[ " $acceptable_exit_codes " =~ " $exit_code " ]]; then
-            echo "[SUCCESS] $step_name completed with acceptable exit code $exit_code" | tee -a setup.log
-            mark_step_complete "$step_name"
-        else
-            echo "[ERROR] $step_name failed with exit code $exit_code" | tee -a setup.log
-            mark_step_failed "$step_name"
-            exit 1
-        fi
+        show_error "$step_name failed with exit code $exit_code"
+        mark_step_failed "$step_name"
+        exit 1
     fi
 }
 
-
 do_update() {
-    log_and_run "update_check" "sudo nala update && sudo nala upgrade"
+    log_and_run "update_check" "nala update && nala upgrade"
 }
 
 install_package() {
     package="$1"
-    # Create a unique step name by replacing spaces with underscores
     step_name="install_$(echo "$package" | tr ' ' '_')"
-    log_and_run "$step_name" "sudo nala install $package -y"
+    log_and_run "$step_name" "nala install $package -y"
 }
 
 add_repository() {
@@ -95,26 +142,26 @@ add_repository() {
     repo_string="$4"
     repo_file="$5"
 
-    log_and_run "add_${name}_gpg_key" "curl -s $key_url | gpg --dearmor | sudo tee $key_path > /dev/null"
-    log_and_run "add_${name}_repo" "echo '$repo_string' | sudo tee $repo_file > /dev/null"
+    log_and_run "add_${name}_gpg_key" "curl -s $key_url | gpg --dearmor | tee $key_path > /dev/null"
+    log_and_run "add_${name}_repo" "echo '$repo_string' | tee $repo_file > /dev/null"
 }
 
-# === Load Package List from External JSON ===
 packages_file="packages.json"
 if [ ! -f "$packages_file" ]; then
-    echo "[ERROR] $packages_file not found" | tee -a setup.log
+    show_error "$packages_file not found!!"
     exit 1
 fi
 
-# === EXECUTION STARTS HERE ===
-echo "Starting Ubuntu setup..." | tee -a setup.log
+#
+# Actual Execution Script
+#
+show_header "Starting Ubuntu setup..."
+show_header "Core Updates"
+log_and_run "initial_system_update" "apt update && apt -y dist-upgrade && apt -y autoremove && apt clean"
+log_and_run "firmware_update" "fwupdmgr get-updates && fwupdmgr update" "0 2"
+log_and_run "disable_network_wait" "systemctl disable NetworkManager-wait-online.service"
 
-echo "Core Updates" | tee -a setup.log
-log_and_run "initial_system_update" "sudo apt update && sudo apt -y dist-upgrade && sudo apt -y autoremove && sudo apt clean"
-log_and_run "firmware_update" "sudo fwupdmgr get-updates && sudo fwupdmgr update" "0 2"
-log_and_run "disable_network_wait" "sudo systemctl disable NetworkManager-wait-online.service"
-
-echo "Adding 3rd party keys and repos" | tee -a setup.log
+show_header "Adding 3rd party keys and repos"
 jq -c '.repositories[]' packages.json | while read -r repo; do
     add_repository \
         "$(echo "$repo" | jq -r '.name')" \
@@ -124,20 +171,20 @@ jq -c '.repositories[]' packages.json | while read -r repo; do
         "$(echo "$repo" | jq -r '.repo_file')"
 done
 
-
-echo "Adding PPAs" | tee -a setup.log
+show_header "Adding PPAs"
 jq -r '.ppas[]' packages.json | while read -r ppa; do
-    log_and_run "add_ppa_${ppa//:/_}" "sudo add-apt-repository -y $ppa"
+    log_and_run "add_ppa_${ppa//:/_}" "add-apt-repository -y $ppa"
 done
 
 do_update
 
-echo "Installing applications" | tee -a setup.log
+show_header "Installing applications" | tee -a setup.log
 mapfile -t packages < <(jq -r '.packages[]' "$packages_file")
 for pkg in "${packages[@]}"; do
     install_package "$pkg"
 done
 
 do_update
-echo "Setup complete!" | tee -a setup.log
+
+show_header "✅ Setup Complete!"
 
