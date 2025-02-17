@@ -1,0 +1,32 @@
+{
+  "packages": [
+    "terminator fonts-powerline",
+    "build-essential git cmake libhidapi-dev",
+    "dirmngr ca-certificates software-properties-common apt-transport-https curl lsb-release",
+    "python3 python3-dotenv",
+    "solaar",
+    "rider pycharm-professional",
+    "mythes-en-au",
+    "dotnet-sdk-8.0",
+"dotnet-sdk-9.0"
+  ],
+  "repositories": [
+    {
+      "name": "jetbrains",
+      "key_url": "https://s3.eu-central-1.amazonaws.com/jetbrains-ppa/0xA6E8698A.pub.asc",
+      "key_path": "/usr/share/keyrings/jetbrains-ppa-archive-keyring.gpg",
+      "repo": "deb [signed-by=/usr/share/keyrings/jetbrains-ppa-archive-keyring.gpg] http://jetbrains-ppa.s3-website.eu-central-1.amazonaws.com any main",
+      "repo_file": "/etc/apt/sources.list.d/jetbrains-ppa.list"
+    },
+    {
+      "name": "microsoft-edge",
+      "key_url": "https://packages.microsoft.com/keys/microsoft.asc",
+      "key_path": "/usr/share/keyrings/microsoft-archive-keyring.gpg",
+      "repo": "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-archive-keyring.gpg] https://packages.microsoft.com/repos/edge stable main",
+      "repo_file": "/etc/apt/sources.list.d/microsoft-edge-dev.list"
+    }
+  ],
+  "ppas": [
+    "ppa:dotnet/backports"
+  ]
+}
