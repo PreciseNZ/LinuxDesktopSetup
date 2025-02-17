@@ -1,5 +1,5 @@
 {
-  "packages": [
+  "nalapackages": [
     "terminator fonts-powerline",
     "build-essential git cmake libhidapi-dev",
     "dirmngr ca-certificates software-properties-common apt-transport-https curl lsb-release",
@@ -8,7 +8,10 @@
     "rider pycharm-professional",
     "mythes-en-au",
     "dotnet-sdk-8.0",
-"dotnet-sdk-9.0"
+    "dotnet-sdk-9.0"
+  ],
+  "snappackages": [
+    "steam"
   ],
   "repositories": [
     {

@@ -7,10 +7,14 @@ YELLOW='\033[1;33m'
 CYAN='\033[1;36m'
 WHITE='\033[1;37m'
 RESET='\033[0m'  # Reset color
+VERBOSE=false
+REINIT=false
+
+echo "$(date '+%Y-%m-%d %H:%M:%S')" > setup.log
 
 show_header() {
     local header="$1"
-    echo -e "${WHITE}=========================================${RESET}"
+    echo -e "\n${WHITE}=========================================${RESET}"
     echo -e "${CYAN}  $header ${RESET}"
     echo -e "${WHITE}=========================================${RESET}"
     echo "$header" >> setup.log
@@ -18,9 +22,9 @@ show_header() {
 
 show_error() {
     local header="$1"
-    echo -e "${RED}=========================================${RESET}"
+    echo -e "\n${RED}=========================================${RESET}"
     echo -e "${RED}  $header ${RESET}"
-    echo -e "${RED}=========================================${RESET}"
+    echo -e "${RED}=========================================${RESET}\n"
     echo "$header" >> setup.log
 }
 
@@ -31,12 +35,12 @@ show_spinner() {
 
     while ps -p $pid &>/dev/null; do
         local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
+        printf "%c" "$spinstr"
         local spinstr=$temp${spinstr%"$temp"}
         sleep $delay
-        printf "\b\b\b\b\b\b"
+        printf "\b"
     done
-    printf "    \b\b\b\b"
+    printf " \b"
 }
 
 #
@@ -47,10 +51,12 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-VERBOSE=false
 for arg in "$@"; do
-    if [[ "$arg" == "--verbose" ]]; then
+    if [[ "$arg" == "--verbose" ]]||[[ "$arg" == "-v" ]]; then
         VERBOSE=true
+    fi
+    if [[ "$arg" == "--reinit" ]]||[[ "$arg" == "-r" ]]; then
+        REINIT=true
     fi
 done
 
@@ -70,10 +76,10 @@ if [ ${#missing_cmds[@]} -gt 0 ]; then
     exit 1
 fi
 
-if [ ! -f setup-progress.json ]; then
+if [ $REINIT = true ] || [ ! -f setup-progress.json ]; then
+	show_error "[REINIT] Creating new setup-progress.json file."
     echo '{}' > setup-progress.json
 fi
-
 
 #
 # General Functions
@@ -100,14 +106,16 @@ log_and_run() {
     local acceptable_exit_codes="${3:-0}"
 
     if [[ "$step_name" != "update_check" ]] && is_step_completed "$step_name"; then
-        echo -e "${YELLOW}[SKIPPING]${RESET} $step_name - Already completed" | tee -a setup.log
+        echo -e "${YELLOW}[SKIPPING]${RESET} $step_name - Already completed"
+        echo -e "Skipping $step_name - Already completed." >> setup.log
         return 0
     fi
 
-    echo -e "${CYAN}[RUNNING]${RESET} $step_name" | tee -a setup.log
+    echo -e "${CYAN}[RUNNING]${RESET} $step_name"
     if [ "$VERBOSE" = true ]; then
         echo -e "${WHITE}Command: $command${RESET}"  # Only show the command in verbose mode
     fi
+    echo -e "Running $step_name. $command" >> setup.log
 
     eval "$command" >> setup.log 2>&1 &  # Always log, but not necessarily show
     local pid=$!
@@ -116,7 +124,8 @@ log_and_run() {
     local exit_code=$?
 
     if [[ " $acceptable_exit_codes " =~ " $exit_code " ]]; then
-        echo -e "${GREEN}[SUCCESS]${RESET} $step_name completed" | tee -a setup.log
+        echo -e "${GREEN}[SUCCESS]${RESET} $step_name completed"
+        echo -e "Complete $step_name." >> setup.log
         mark_step_complete "$step_name"
     else
         show_error "$step_name failed with exit code $exit_code"
@@ -126,13 +135,27 @@ log_and_run() {
 }
 
 do_update() {
-    log_and_run "update_check" "nala update && nala upgrade"
+	echo -e "${WHITE}[UPDATE]${RESET} Conducting update check."
+    echo -e "Checking updates." >> setup.log
+	eval "nala update" >> setup.log 2>&1 &
+	local pid=$!
+    show_spinner $pid  # Show spinner while the command runs
+    wait $pid
+	if apt list --upgradable 2>/dev/null | grep -q 'upgradable'; then
+    	log_and_run "update_check" "nala upgrade"
+    fi
 }
 
-install_package() {
+install_nala_package() {
     package="$1"
     step_name="install_$(echo "$package" | tr ' ' '_')"
     log_and_run "$step_name" "nala install $package -y"
+}
+
+install_snap_package() {
+    package="$1"
+    step_name="install_$(echo "$package" | tr ' ' '_')"
+    log_and_run "$step_name" "snap install $package -y" "0 64" # 0==Success, 64==Already installed.
 }
 
 add_repository() {
@@ -155,7 +178,7 @@ fi
 #
 # Actual Execution Script
 #
-show_header "Starting Ubuntu setup..."
+show_header "Starting Ubuntu setup. \n   Use: \n    --verbose for more details.\n    --reset to reset progress.\n   Logs stored in setup.log."
 show_header "Core Updates"
 log_and_run "initial_system_update" "apt update && apt -y dist-upgrade && apt -y autoremove && apt clean"
 log_and_run "firmware_update" "fwupdmgr get-updates && fwupdmgr update" "0 2"
@@ -178,10 +201,16 @@ done
 
 do_update
 
-show_header "Installing applications" | tee -a setup.log
-mapfile -t packages < <(jq -r '.packages[]' "$packages_file")
-for pkg in "${packages[@]}"; do
-    install_package "$pkg"
+show_header "Installing Nala applications"
+mapfile -t nalapackages < <(jq -r '.nalapackages[]' "$packages_file")
+for pkg in "${nalapackages[@]}"; do
+    install_nala_package "$pkg"
+done
+
+show_header "Installing Snap applications"
+mapfile -t snappackages < <(jq -r '.snappackages[]' "$packages_file")
+for pkg in "${snappackages[@]}"; do
+    install_snap_package "$pkg"
 done
 
 do_update
