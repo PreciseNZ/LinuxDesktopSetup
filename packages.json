@@ -11,7 +11,8 @@
     "dotnet-sdk-9.0"
   ],
   "snappackages": [
-    "steam"
+    "steam",
+    "intellij-idea-ultimate --classic"
   ],
   "repositories": [
     {

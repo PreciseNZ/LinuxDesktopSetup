@@ -160,7 +160,7 @@ install_nala_package() {
 install_snap_package() {
     package="$1"
     step_name="install_$(echo "$package" | tr ' ' '_')"
-    log_and_run "$step_name" "snap install $package -y" "0 64" # 0==Success, 64==Already installed.
+    log_and_run "$step_name" "snap install $package" "0 64" # 0==Success, 64==Already installed.
 }
 
 add_repository() {
