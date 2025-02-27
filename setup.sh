@@ -33,7 +33,7 @@ show_error() {
 show_spinner() {
     local pid=$1
     local delay=0.1
-    local spinstr='|/-\'
+    local spinstr='|+-+'
 
     while ps -p $pid &>/dev/null; do
         local temp=${spinstr#?}
@@ -147,7 +147,7 @@ do_update() {
     show_spinner $pid  # Show spinner while the command runs
     wait $pid
 	if apt list --upgradable 2>/dev/null | grep -q 'upgradable'; then
-    	log_and_run "update_check" "nala upgrade"
+    	log_and_run "update_check" "nala upgrade -y"
     fi
 }
 
@@ -187,6 +187,7 @@ show_header "Starting Ubuntu setup. \n   Use: \n    --verbose for more details.\
 show_header "Core Updates"
 log_and_run "initial_system_update" "apt update && apt -y dist-upgrade && apt -y autoremove && apt clean"
 log_and_run "firmware_update" "fwupdmgr get-updates && fwupdmgr update" "0 2"
+log_and_run "release_upgrade" "do-release-upgrade" "0 1"
 log_and_run "disable_network_wait" "systemctl disable NetworkManager-wait-online.service"
 
 show_header "Adding 3rd party keys and repos"
@@ -232,6 +233,8 @@ log_and_run "refresh_font_cache" "sudo -u $CURRENT_USER fc-cache -f"
 
 
 show_header "Configuring Terminator"
+log_and_run "download_synthshell" "git clone --recursive https://github.com/andresgongora/synth-shell-prompt.git"
+log_and_run "run_synth-shell" "synth-shell-prompt/setup.sh"
 config_file="$USER_HOME/.config/terminator/config"
 
 log_and_run "create_terminator_config" "mkdir -p '$(dirname $config_file)' && touch $config_file"
