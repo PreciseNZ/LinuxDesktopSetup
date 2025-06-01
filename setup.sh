@@ -11,6 +11,7 @@ YELLOW='\033[1;33m'
 CYAN='\033[1;36m'
 WHITE='\033[1;37m'
 RESET='\033[0m'  # Reset color
+NOUPDATE=false
 VERBOSE=false
 REINIT=false
 
@@ -19,7 +20,7 @@ show_header() {
     echo -e "\n${WHITE}=========================================${RESET}"
     echo -e "${CYAN}  $header ${RESET}"
     echo -e "${WHITE}=========================================${RESET}"
-    echo "$header" >> setup.log
+    echo "$header" >> linuxdesktopsetup.log
 }
 
 show_error() {
@@ -27,7 +28,7 @@ show_error() {
     echo -e "\n${RED}=========================================${RESET}"
     echo -e "${RED}  $header ${RESET}"
     echo -e "${RED}=========================================${RESET}\n"
-    echo "$header" >> setup.log
+    echo "$header" >> linuxdesktopsetup.log
 }
 
 show_spinner() {
@@ -35,14 +36,14 @@ show_spinner() {
     local delay=0.1
     local spinstr='|+-+'
 
-    while ps -p $pid &>/dev/null; do
-        local temp=${spinstr#?}
-        printf "%c" "$spinstr"
-        local spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b"
-    done
-    printf " \b"
+#    while ps -p $pid &>/dev/null; do
+#        local temp=${spinstr#?}
+#        printf "%c" "$spinstr"
+#        local spinstr=$temp${spinstr%"$temp"}
+#        sleep $delay
+#        printf "\b"
+#    done
+#    printf " \b"
 }
 
 #
@@ -54,7 +55,7 @@ if [ "$EUID" -ne 0 ]; then
     exit 0
 fi
 
-echo "$(date '+%Y-%m-%d %H:%M:%S')" > setup.log
+echo "$(date '+%Y-%m-%d %H:%M:%S')" > linuxdesktopsetup.log
 
 for arg in "$@"; do
     if [[ "$arg" == "--verbose" ]]||[[ "$arg" == "-v" ]]; then
@@ -62,6 +63,9 @@ for arg in "$@"; do
     fi
     if [[ "$arg" == "--reinit" ]]||[[ "$arg" == "-r" ]]; then
         REINIT=true
+    fi
+    if [[ "$arg" == "--noupdate" ]]||[[ "$arg" == "-n" ]]; then
+	NOUPDATE=true
     fi
 done
 
@@ -81,9 +85,9 @@ if [ ${#missing_cmds[@]} -gt 0 ]; then
     exit 1
 fi
 
-if [ $REINIT = true ] || [ ! -f setup-progress.json ]; then
-	show_error "[REINIT] Creating new setup-progress.json file."
-    echo '{}' > setup-progress.json
+if [ $REINIT = true ] || [ ! -f progress.json ]; then
+	show_error "[REINIT] Creating new progress.json file."
+    echo '{}' > progress.json
 fi
 
 #
@@ -91,17 +95,17 @@ fi
 #
 mark_step_complete() {
     step_name="$1"
-    jq --arg step "$step_name" '.[$step] = "success"' setup-progress.json > temp.json && mv temp.json setup-progress.json
+    jq --arg step "$step_name" '.[$step] = "success"' progress.json > temp.json && mv temp.json progress.json
 }
 
 mark_step_failed() {
     step_name="$1"
-    jq --arg step "$step_name" '.[$step] = "failed"' setup-progress.json > temp.json && mv temp.json setup-progress.json
+    jq --arg step "$step_name" '.[$step] = "failed"' progress.json > temp.json && mv temp.json progress.json
 }
 
 is_step_completed() {
     step_name="$1"
-    result=$(jq -r --arg step "$step_name" '.[$step] // empty' setup-progress.json)
+    result=$(jq -r --arg step "$step_name" '.[$step] // empty' progress.json)
     [ "$result" == "success" ]
 }
 
@@ -112,7 +116,7 @@ log_and_run() {
 
     if [[ "$step_name" != "update_check" ]] && is_step_completed "$step_name"; then
         echo -e "${YELLOW}[SKIPPING]${RESET} $step_name - Already completed"
-        echo -e "Skipping $step_name - Already completed." >> setup.log
+        echo -e "Skipping $step_name - Already completed." >> linuxdesktopsetup.log
         return 0
     fi
 
@@ -120,17 +124,17 @@ log_and_run() {
     if [ "$VERBOSE" = true ]; then
         echo -e "${WHITE}Command: $command${RESET}"  # Only show the command in verbose mode
     fi
-    echo -e "Running $step_name. $command" >> setup.log
+    echo -e "Running $step_name. $command" >> linuxdesktopsetup.log
 
-    eval "$command" >> setup.log 2>&1 &  # Always log, but not necessarily show
+    eval "$command" >> linuxdesktopsetup.log 2>&1 &  # Always log, but not necessarily show
     local pid=$!
-    show_spinner $pid  # Show spinner while the command runs
+    # show_spinner $pid  # Show spinner while the command runs
     wait $pid
     local exit_code=$?
 
     if [[ " $acceptable_exit_codes " =~ " $exit_code " ]]; then
         echo -e "${GREEN}[SUCCESS]${RESET} $step_name completed"
-        echo -e "Complete $step_name." >> setup.log
+        echo -e "Complete $step_name." >> linuxdesktopsetup.log
         mark_step_complete "$step_name"
     else
         show_error "$step_name failed with exit code $exit_code"
@@ -140,14 +144,16 @@ log_and_run() {
 }
 
 do_update() {
-	echo -e "${WHITE}[UPDATE]${RESET} Conducting update check."
-    echo -e "Checking updates." >> setup.log
-	eval "nala update" >> setup.log 2>&1 &
-	local pid=$!
-    show_spinner $pid  # Show spinner while the command runs
-    wait $pid
-	if apt list --upgradable 2>/dev/null | grep -q 'upgradable'; then
-    	log_and_run "update_check" "nala upgrade -y"
+   if [[ $NOUPDATE == false ]] ; then
+	   echo -e "${WHITE}[UPDATE]${RESET} Conducting update check."
+	    echo -e "Checking updates." >> linuxdesktopsetup.log
+		eval "nala update" >> linuxdesktopsetup.log 2>&1 &
+		local pid=$!
+	    #  show_spinner $pid  # Show spinner while the command runs
+	    wait $pid
+	    if apt list --upgradable 2>/dev/null | grep -q 'upgradable'; then
+	    	log_and_run "update_check" "nala upgrade -y"
+	    fi
     fi
 }
 
@@ -183,7 +189,7 @@ fi
 #
 # Actual Execution Script
 #
-show_header "Starting Ubuntu setup. \n   Use: \n    --verbose for more details.\n    --reset to reset progress.\n   Logs stored in setup.log."
+show_header "Starting Ubuntu setup. \n   Use: \n    --verbose for more details.\n    --reset to reset progress.\n   Logs stored in linuxdesktopsetup.log."
 show_header "Core Updates"
 log_and_run "initial_system_update" "apt update && apt -y dist-upgrade && apt -y autoremove && apt clean"
 log_and_run "firmware_update" "fwupdmgr get-updates && fwupdmgr update" "0 2"
