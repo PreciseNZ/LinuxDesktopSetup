@@ -169,6 +169,12 @@ install_snap_package() {
     log_and_run "$step_name" "snap install $package -y" "0 64" # 0==Success, 64==Already installed.
 }
 
+install_flatpak_package() {
+	package="$1"
+	step_name="install_$(echo "$package" | tr ' ' '_')"
+	log_and_run "$step_name" "flatpak install flathub $package"
+}
+
 add_repository() {
     name="$1"
     key_url="$2"
@@ -178,6 +184,13 @@ add_repository() {
 
     log_and_run "add_${name}_gpg_key" "curl -s $key_url | gpg --dearmor | tee $key_path > /dev/null"
     log_and_run "add_${name}_repo" "echo '$repo_string' | tee $repo_file > /dev/null"
+}
+
+add_flatpakrepo() {
+	name="$1"
+	url="$2"
+
+	log_and_run "add_${name}_flatpak_repo" "flatpak remote-add --if-not-exists $name $url > /dev/null"
 }
 
 packages_file="packages.json"
@@ -224,6 +237,20 @@ mapfile -t snappackages < <(jq -r '.snappackages[]' "$packages_file")
 for pkg in "${snappackages[@]}"; do
     install_snap_package "$pkg"
 done
+
+show_header "Adding Flatpak Repos"
+jq -c '.flatpakrepos[]' packages.json | while read -r repo; do
+    add_flatpakrepo \
+        "$(echo "$repo" | jq -r '.name')" \
+        "$(echo "$repo" | jq -r '.url')" 
+done
+
+show_header "Installing Flatpak applications"
+mapfile -t flatpaks < <(jq -r '.flatpaks[]' "$packages_file")
+for pkg in "${flatpaks[@]}"; do
+    install_flatpak_package "$pkg"
+done
+
 
 do_update
 
