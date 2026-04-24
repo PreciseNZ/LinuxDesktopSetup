@@ -9,10 +9,13 @@
     "dotnet-sdk-10.0",
     "dotnet-sdk-9.0",
 	"yubikey-manager",
-	"flatpak"
+	"flatpak",
+	"gnome-tweaks"
   ],
   "snappackages": [
-    "steam"
+    "firefox",
+    "steam",
+    "thunderbird"
   ],
   "flatpaks": [
   	"com.yubico.yubioath"
