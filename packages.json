@@ -5,7 +5,6 @@
     "dirmngr ca-certificates software-properties-common apt-transport-https curl lsb-release libpam-u2f libfido2-1",
     "python3 python3-dotenv",
     "solaar",
-    "mythes-en-au",
     "dotnet-sdk-10.0",
     "dotnet-sdk-9.0",
 	"yubikey-manager",
@@ -15,7 +14,8 @@
   "snappackages": [
     "firefox",
     "steam",
-    "thunderbird"
+    "thunderbird",
+	"libreoffice"
   ],
   "flatpaks": [
   	"com.yubico.yubioath"
